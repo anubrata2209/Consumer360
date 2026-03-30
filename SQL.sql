@@ -233,5 +233,3 @@ CREATE INDEX idx_date ON fact_sales(InvoiceDate);
 CREATE INDEX idx_customer ON fact_sales(CustomerID);
 CREATE INDEX idx_product ON fact_sales(StockCode);
 
-
-
