@@ -1,0 +1,13 @@
+# Ignore Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Python cache files
+__pycache__/
+*.pyc
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Large data files (optional)
+*.csv
