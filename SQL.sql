@@ -1,6 +1,13 @@
 -- CREATE DATABASE
 CREATE DATABASE IF NOT EXISTS online_retail_db;
 USE online_retail_db;
+-- Session Settings
+SET SQL_SAFE_UPDATES   = 0;
+SET FOREIGN_KEY_CHECKS = 0;      
+SET UNIQUE_CHECKS      = 0;      
+SET autocommit         = 0;      
+SET SESSION group_concat_max_len = 1000000;
+
 
 -- STEP 2: CREATE STAGING TABLE
 DROP TABLE IF EXISTS raw_transactions;
@@ -13,7 +20,10 @@ CREATE TABLE  raw_transactions (
     Price         DECIMAL(10,2),
     CustomerID    VARCHAR(20),
     Country       VARCHAR(100)
-);
+)ENGINE = InnoDB
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci; 
+  
 SELECT * FROM  raw_transactions;
 -- LOAD DATA 
 SET GLOBAL local_infile = 1;
@@ -27,12 +37,22 @@ IGNORE 1 ROWS
 (Invoice, StockCode, Description, Quantity, InvoiceDate, Price, CustomerID, Country);
 
 -- Verify row count
-SELECT COUNT(*) FROM raw_transactions;
+
 SELECT * FROM raw_transactions;
+
+SELECT COUNT(*)                          AS total_raw_rows     FROM raw_transactions;
+SELECT COUNT(DISTINCT CustomerID)        AS distinct_customers FROM raw_transactions;
+SELECT COUNT(DISTINCT StockCode)         AS distinct_products  FROM raw_transactions;
+SELECT MIN(InvoiceDate), MAX(InvoiceDate)                      FROM raw_transactions;
 
 -- Data cleaning
 DROP TABLE IF EXISTS clean_transactions;
-CREATE TABLE clean_transactions AS
+
+CREATE TABLE clean_transactions
+ENGINE = InnoDB
+CHARACTER SET utf8mb4
+COLLATE utf8mb4_unicode_ci
+AS
 SELECT
     TRIM(Invoice) AS Invoice,
     UPPER(TRIM(StockCode)) AS StockCode,
@@ -55,8 +75,9 @@ SELECT
 
 	NULLIF(TRIM(CustomerID), '')                            AS CustomerID,
 	NULLIF(TRIM(Country), '')                               AS Country
-
 FROM raw_transactions;
+
+
 
 -- Check NULL Values
 SELECT 
@@ -78,19 +99,41 @@ WHERE
 SET SQL_SAFE_UPDATES = 1; 
     
 -- Remove Invalid Rows
-DELETE FROM clean_transactions
-WHERE (Quantity <= 0 OR Price <= 0 OR Invoice IS NULL)
-LIMIT 10000;  
 SET SQL_SAFE_UPDATES = 0;
-    
+DELETE FROM clean_transactions
+WHERE Quantity <= 0 OR Price <= 0 OR Invoice IS NULL;
+SET SQL_SAFE_UPDATES = 1;
+
 -- Remove Duplicates
 CREATE TABLE temp_clean AS
 SELECT DISTINCT * FROM clean_transactions;
 
 DROP TABLE clean_transactions;
 RENAME TABLE temp_clean TO clean_transactions;
+COMMIT;
 
-SELECT COUNT(*) FROM clean_transactions;
+-- Verify cleaning results
+SELECT
+    COUNT(*)                     AS clean_rows,
+    COUNT(DISTINCT CustomerID)   AS unique_customers,
+    COUNT(DISTINCT StockCode)    AS unique_products,
+    COUNT(DISTINCT Invoice)      AS unique_invoices,
+    MIN(InvoiceDate)             AS earliest_date,
+    MAX(InvoiceDate)             AS latest_date
+FROM clean_transactions;
+
+-- NULL audit (all should be 0)
+SELECT
+    SUM(Invoice      IS NULL) AS null_invoice,
+    SUM(StockCode    IS NULL) AS null_stockcode,
+    SUM(Description  IS NULL) AS null_description,
+    SUM(Quantity     IS NULL) AS null_quantity,
+    SUM(InvoiceDate  IS NULL) AS null_date,
+    SUM(Price        IS NULL) AS null_price,
+    SUM(CustomerID   IS NULL) AS null_customer,
+    SUM(Country      IS NULL) AS null_country
+FROM clean_transactions;
+
 
 -- ----------------Export Cleaned Data to CSV--------------------
 SELECT 'Invoice', 'StockCode', 'Description', 'Quantity', 'InvoiceDate', 'Price', 'Customer ID', 'Country'
@@ -225,6 +268,26 @@ FROM (
     FROM fact_sales
     GROUP BY Invoice
 ) t;
+
+-- Revenue by Geography
+CREATE OR REPLACE VIEW vw_revenue_by_country AS
+SELECT
+    ct.Country,
+    COUNT(DISTINCT fs.CustomerID)           AS customers,
+    COUNT(DISTINCT fs.Invoice)              AS orders,
+    ROUND(SUM(fs.TotalAmount), 2)           AS total_revenue,
+    ROUND(AVG(fs.TotalAmount), 2)           AS avg_order_value,
+    ROUND(
+        100.0 * SUM(fs.TotalAmount) /
+        SUM(SUM(fs.TotalAmount)) OVER (), 2
+    )                                        AS revenue_pct
+FROM fact_sales fs
+JOIN clean_transactions ct
+    ON  fs.Invoice    = ct.Invoice
+    AND fs.CustomerID = ct.CustomerID
+    AND fs.StockCode  = ct.StockCode
+GROUP BY ct.Country
+ORDER BY total_revenue DESC;
 
 -- Performance Optimization
 CREATE INDEX idx_country ON clean_transactions(Country);
