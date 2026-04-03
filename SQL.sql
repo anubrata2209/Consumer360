@@ -147,41 +147,114 @@ LINES TERMINATED BY '\n';
 
 -- Customer Dimension
 DROP TABLE IF EXISTS dim_customer;
-CREATE TABLE dim_customer AS
-SELECT DISTINCT CustomerID
-FROM clean_transactions;
+
+CREATE TABLE dim_customer (
+    CustomerID VARCHAR(20) NOT NULL,
+    Country VARCHAR(100),
+    PRIMARY KEY (CustomerID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT INTO dim_customer
+SELECT 
+    CustomerID,
+    MAX(Country)
+FROM clean_transactions
+WHERE CustomerID IS NOT NULL
+GROUP BY CustomerID;
+
 
 -- Product Dimension
 DROP TABLE IF EXISTS dim_product;
-CREATE TABLE dim_product AS
-SELECT DISTINCT StockCode, Description
-FROM clean_transactions;
+
+CREATE TABLE dim_product (
+    StockCode VARCHAR(20) NOT NULL,
+    Description TEXT,
+    PRIMARY KEY (StockCode)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT INTO dim_product
+SELECT 
+    StockCode,
+    MAX(Description)
+FROM clean_transactions
+GROUP BY StockCode;
 
 -- Date Dimension
 DROP TABLE IF EXISTS dim_date;
-CREATE TABLE dim_date AS
-SELECT DISTINCT 
-    InvoiceDate,
-    YEAR(InvoiceDate) AS Year,
-    MONTH(InvoiceDate) AS Month,
-    DAY(InvoiceDate) AS Day
+
+CREATE TABLE dim_date (
+    date_key DATE PRIMARY KEY,
+    Year INT,
+    Month INT,
+    Day INT,
+    DayName VARCHAR(20),
+    Quarter INT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT INTO dim_date
+SELECT DISTINCT
+    DATE(InvoiceDate),
+    YEAR(InvoiceDate),
+    MONTH(InvoiceDate),
+    DAY(InvoiceDate),
+    DAYNAME(InvoiceDate),
+    QUARTER(InvoiceDate)
 FROM clean_transactions;
+
+
+ALTER TABLE dim_customer 
+MODIFY CustomerID VARCHAR(20)
+CHARACTER SET utf8mb4
+COLLATE utf8mb4_unicode_ci;
+
+ALTER TABLE dim_product 
+MODIFY StockCode VARCHAR(20)
+CHARACTER SET utf8mb4
+COLLATE utf8mb4_unicode_ci;
 
 
 -- ---------Fact Sales-------------------------
 DROP TABLE IF EXISTS fact_sales;
-CREATE TABLE fact_sales AS
+CREATE TABLE fact_sales (
+    sale_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    Invoice VARCHAR(20),
+    StockCode VARCHAR(20),
+    CustomerID VARCHAR(20),
+    InvoiceDate DATETIME,
+    Quantity INT,
+    Price DECIMAL(10,2),
+	TotalAmount DECIMAL(12,2),
+    FOREIGN KEY (CustomerID) REFERENCES dim_customer(CustomerID),
+    FOREIGN KEY (StockCode)  REFERENCES dim_product(StockCode)
+)ENGINE=InnoDB 
+DEFAULT CHARSET=utf8mb4 
+COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO fact_sales 
+(Invoice, StockCode, CustomerID, InvoiceDate, Quantity, Price, TotalAmount)
 SELECT 
-    ct.Invoice,
-    ct.StockCode,
-    ct.CustomerID,
-    ct.InvoiceDate,
-    ct.Quantity,
-    ct.Price,
-    (ct.Quantity * ct.Price) AS TotalAmount
-FROM clean_transactions ct;
+    Invoice, 
+    StockCode, 
+    CustomerID, 
+    InvoiceDate, 
+    Quantity, 
+    Price,
+    (Quantity * Price) 
 
+FROM clean_transactions;
+COMMIT;
+-- Verify
+SELECT COUNT(*)                      AS total_rows      FROM fact_sales;
+SELECT COUNT(DISTINCT CustomerID)    AS customers       FROM fact_sales;
+SELECT COUNT(DISTINCT StockCode)     AS products        FROM fact_sales;
+SELECT ROUND(SUM(TotalAmount), 2)    AS gross_revenue   FROM fact_sales;
 
+-- Performance Indexes on fact_sales
+CREATE INDEX idx_country ON clean_transactions(Country);
+CREATE INDEX idx_invoice ON fact_sales(Invoice);
+CREATE INDEX idx_date ON fact_sales(InvoiceDate);
+CREATE INDEX idx_customer ON fact_sales(CustomerID);
+CREATE INDEX idx_product ON fact_sales(StockCode);
     
 -- ------------ERD Verification Queries--------------------
 -- Check relationships
@@ -198,6 +271,7 @@ FROM fact_sales f
 LEFT JOIN dim_product p 
 ON f.StockCode = p.StockCode
 WHERE p.StockCode IS NULL;
+
 
 -- ----------Core analytical queries  (<2 sec)-----------------
 -- Total Sales
@@ -269,30 +343,37 @@ FROM (
     GROUP BY Invoice
 ) t;
 
+
 -- Revenue by Geography
-CREATE OR REPLACE VIEW vw_revenue_by_country AS
 SELECT
-    ct.Country,
-    COUNT(DISTINCT fs.CustomerID)           AS customers,
-    COUNT(DISTINCT fs.Invoice)              AS orders,
-    ROUND(SUM(fs.TotalAmount), 2)           AS total_revenue,
-    ROUND(AVG(fs.TotalAmount), 2)           AS avg_order_value,
+    dc.Country,
+    
+    COUNT(DISTINCT fs.CustomerID) AS customers,
+    COUNT(DISTINCT fs.Invoice) AS orders,
+
+    ROUND(SUM(fs.TotalAmount), 2) AS total_revenue,
+
     ROUND(
-        100.0 * SUM(fs.TotalAmount) /
-        SUM(SUM(fs.TotalAmount)) OVER (), 2
-    )                                        AS revenue_pct
+        SUM(fs.TotalAmount) / COUNT(DISTINCT fs.Invoice),
+    2) AS avg_order_value,
+
+    ROUND(
+        100 * SUM(fs.TotalAmount) / SUM(SUM(fs.TotalAmount)) OVER (),
+    2) AS revenue_pct
+
 FROM fact_sales fs
-JOIN clean_transactions ct
-    ON  fs.Invoice    = ct.Invoice
-    AND fs.CustomerID = ct.CustomerID
-    AND fs.StockCode  = ct.StockCode
-GROUP BY ct.Country
+JOIN dim_customer dc
+    ON fs.CustomerID = dc.CustomerID
+
+GROUP BY dc.Country
 ORDER BY total_revenue DESC;
 
--- Performance Optimization
-CREATE INDEX idx_country ON clean_transactions(Country);
-CREATE INDEX idx_invoice ON fact_sales(Invoice);
-CREATE INDEX idx_date ON fact_sales(InvoiceDate);
-CREATE INDEX idx_customer ON fact_sales(CustomerID);
-CREATE INDEX idx_product ON fact_sales(StockCode);
+
+ -- Restore Session Settings
+SET FOREIGN_KEY_CHECKS = 1;
+SET UNIQUE_CHECKS      = 1;
+SET autocommit         = 1;
+SET SQL_SAFE_UPDATES   = 1;
+
+SELECT 'Consumer360 schema build complete' AS status;
 

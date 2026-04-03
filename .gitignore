@@ -9,5 +9,5 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# Large data files (optional)
+# Large data files
 *.csv
