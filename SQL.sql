@@ -1,4 +1,6 @@
 -- CREATE DATABASE
+DROP DATABASE online_retail_db;
+
 CREATE DATABASE IF NOT EXISTS online_retail_db;
 USE online_retail_db;
 -- Session Settings
@@ -90,27 +92,56 @@ SELECT
     SUM(Description IS NULL) AS null_description
 FROM clean_transactions;
 
--- Remove rows with NULL values
+-- Disable safe updates
 SET SQL_SAFE_UPDATES = 0;
+
+-- Remove NULL & empty values
 DELETE FROM clean_transactions
 WHERE 
     CustomerID IS NULL
-    OR Description IS NULL;
-SET SQL_SAFE_UPDATES = 1; 
-    
--- Remove Invalid Rows
-SET SQL_SAFE_UPDATES = 0;
-DELETE FROM clean_transactions
-WHERE Quantity <= 0 OR Price <= 0 OR Invoice IS NULL;
-SET SQL_SAFE_UPDATES = 1;
+    OR TRIM(CustomerID) = ''
+    OR Description IS NULL
+    OR InvoiceDate IS NULL;
 
--- Remove Duplicates
+-- Remove invalid numeric values
+DELETE FROM clean_transactions
+WHERE 
+    Quantity <= 0 
+    OR Price <= 0
+    OR Invoice IS NULL;
+
+-- Remove cancelled invoices
+DELETE FROM clean_transactions
+WHERE Invoice LIKE 'C%';
+
+-- Remove non-product / noise records (IMPORTANT)
+DELETE FROM clean_transactions
+WHERE 
+    UPPER(TRIM(StockCode)) IN (
+        'POST', 'D', 'M', 'DOT', 'CRUK',
+        'BANK CHARGES', 'PADS', 'ADJUST', 'ADJUST2',
+        'TEST001', 'TEST002', 'AMAZONFEE', 'MANUAL', 'CHECK','C2'
+    )
+    OR
+    UPPER(TRIM(Description)) IN (
+        'POSTAGE', 'DOTCOM POSTAGE', 'MANUAL', 'DISCOUNT',
+        'AMAZON FEE', 'BANK CHARGES', 'CRUK DONATION',
+        'ADJUST', 'INCORRECTLY CREDITED', 'INCORRECTLY DEBITED',
+        'WRONGLY CODED'
+    );
+
+-- Remove duplicates 
 CREATE TABLE temp_clean AS
 SELECT DISTINCT * FROM clean_transactions;
 
 DROP TABLE clean_transactions;
 RENAME TABLE temp_clean TO clean_transactions;
+
+-- Commit changes
 COMMIT;
+
+-- Enable safe updates
+SET SQL_SAFE_UPDATES = 1;
 
 -- Verify cleaning results
 SELECT
@@ -201,7 +232,7 @@ SELECT DISTINCT
     QUARTER(InvoiceDate)
 FROM clean_transactions;
 
-
+-- COLLATION ALIGNMENT
 ALTER TABLE dim_customer 
 MODIFY CustomerID VARCHAR(20)
 CHARACTER SET utf8mb4
