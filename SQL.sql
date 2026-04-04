@@ -1,5 +1,5 @@
 -- CREATE DATABASE
-DROP DATABASE online_retail_db;
+-- DROP DATABASE online_retail_db;
 
 CREATE DATABASE IF NOT EXISTS online_retail_db;
 USE online_retail_db;
