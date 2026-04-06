@@ -13,3 +13,5 @@ Thumbs.db
 *.csv
 
 .ipynb_checkpoints/
+*.png
+*.html
