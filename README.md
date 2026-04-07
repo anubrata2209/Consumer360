@@ -3,7 +3,7 @@
 ##  Project Overview
 
 
-onsumer360 is an end-to-end data analytics project focused on understanding customer behavior in an e-commerce business. The goal is to identify high-value customers, analyze purchasing patterns, predict customer lifetime value (CLV), and detect customers who are at risk of churning.
+Consumer360 is an end-to-end data analytics project focused on understanding customer behavior in an e-commerce business. The goal is to identify high-value customers, analyze purchasing patterns, predict customer lifetime value (CLV), and detect customers who are at risk of churning.
 
  In this project, we built a complete pipeline using SQL, Python, and Power BI — starting from raw transactional data, cleaning and transforming it, performing advanced analytics, and finally creating an interactive dashboard for business insights.
  
