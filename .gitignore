@@ -11,6 +11,8 @@ Thumbs.db
 
 # Large data files
 *.csv
+*.pbix
+*.pdf
 
 .ipynb_checkpoints/
 *.png
